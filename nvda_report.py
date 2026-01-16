@@ -40,20 +40,35 @@ def calculate_forecast():
     return {"Revenue": 68.5, "Net_Income": 34.2}
 
 def send_mail(intel, res):
+    # 核心修复：先在外部处理好换行符替换，避免在 f-string {} 内部使用反斜杠
+    intel_html = intel.replace('\n', '<br>')
+    
     # 构造 HTML 邮件内容
     html = f"""
     <html>
-    <body>
+    <body style="font-family: sans-serif;">
         <h2 style="color: #76b900;">NVIDIA (NVDA) 业绩前瞻周报</h2>
         <p><b>生成日期：</b> {datetime.date.today()}</p>
         <hr>
-        <h3>📊 核心预测</h3>
-        <ul>
-            <li>预测营收: <b>${res['Revenue']}B</b></li>
-            <li>预测净利润: <b>${res['Net_Income']}B</b></li>
-        </ul>
+        <table border="1" cellpadding="8" style="border-collapse: collapse;">
+            <tr style="background-color: #f2f2f2;">
+                <th>预测维度</th>
+                <th>数值 (2026 Q3/Q4)</th>
+            </tr>
+            <tr>
+                <td>预测营收</td>
+                <td><b>${res['Revenue']}B</b></td>
+            </tr>
+            <tr>
+                <td>预测净利润</td>
+                <td><b>${res['Net_Income']}B</b></td>
+            </tr>
+        </table>
         <h3>🔍 智能情报摘要</h3>
-        <p>{intel.replace('\\n', '<br>')}</p>
+        <div style="background-color: #f9f9f9; padding: 15px; border-left: 5px solid #76b900;">
+            {intel_html}
+        </div>
+        <p style="font-size: 12px; color: #888;">数据推导基于：TSMC CoWoS 产能、HBM4 供应及云厂商 CapEx 支出模型。</p>
     </body>
     </html>
     """
