@@ -2,48 +2,60 @@ import os
 import sys
 import datetime
 import smtplib
-# 核心修复：必须从 email 库中导入这些具体的组件
+import requests
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
-from google import genai
 
-# 获取环境变量
-MY_KEY = os.getenv("GEMINI_API_KEY")
+DS_KEY = os.getenv("DEEPSEEK_API_KEY")
 MY_PASS = os.getenv("EMAIL_PASS")
 MY_MAIL = os.getenv("MY_MAIL")
 
-# 诊断信息（确认变量已送达）
-print(f"DEBUG: 环境变量检测:")
-print(f"GEMINI_API_KEY: {'Yes' if MY_KEY else 'No'}")
+print("DEBUG: 环境变量检测:")
+print(f"DEEPSEEK_API_KEY: {'Yes' if DS_KEY else 'No'}")
 print(f"EMAIL_PASS: {'Yes' if MY_PASS else 'No'}")
 print(f"MY_MAIL: {'Yes' if MY_MAIL else 'No'}")
 
-if not MY_KEY:
-    print("❌ 错误：未检测到 API Key，请检查 GitHub Secrets")
+if not DS_KEY:
+    print("❌ 错误：未检测到 DEEPSEEK_API_KEY，请检查 GitHub Secrets 或本地环境变量")
     sys.exit(1)
 
-client = genai.Client(api_key=MY_KEY)
+if not MY_PASS or not MY_MAIL:
+    print("❌ 错误：未检测到 EMAIL_PASS 或 MY_MAIL，请检查 GitHub Secrets 或本地环境变量")
+    sys.exit(1)
 
-# --- 以下是你原来的函数部分 ---
 
 def get_nvda_intelligence():
     prompt = "请分析过去一周 NVIDIA 的供应链(TSMC/HBM)与云厂商CapEx动态，生成预测推导参数。"
     try:
-        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-        return response.text
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {DS_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "deepseek-reasoner",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        if resp.status_code != 200:
+            return f"情报获取失败: HTTP {resp.status_code}: {resp.text}"
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"情报获取失败: {e}"
 
+
 def calculate_forecast():
-    # 模拟推导模型逻辑（可根据需求后期接入实时数据）
     return {"Revenue": 68.5, "Net_Income": 34.2}
 
+
 def send_mail(intel, res):
-    # 核心修复：先在外部处理好换行符替换，避免在 f-string {} 内部使用反斜杠
-    intel_html = intel.replace('\n', '<br>')
-    
-    # 构造 HTML 邮件内容
+    intel_html = intel.replace("\n", "<br>")
+
     html = f"""
     <html>
     <body style="font-family: sans-serif;">
@@ -72,11 +84,15 @@ def send_mail(intel, res):
     </body>
     </html>
     """
-    msg = MIMEText(html, 'html', 'utf-8')
-    msg['From'] = formataddr((str(Header("NVDA业绩哨兵", 'utf-8')), MY_MAIL))
-    msg['To'] = MY_MAIL
-    msg['Subject'] = Header(f"【AI前瞻】NVDA 季度业绩预测周报 - {datetime.date.today()}", 'utf-8')
-    
+
+    msg = MIMEText(html, "html", "utf-8")
+    msg["From"] = formataddr((str(Header("NVDA业绩哨兵", "utf-8")), MY_MAIL))
+    msg["To"] = MY_MAIL
+    msg["Subject"] = Header(
+        f"【AI前瞻】NVDA 季度业绩预测周报 - {datetime.date.today()}",
+        "utf-8",
+    )
+
     try:
         with smtplib.SMTP_SSL("smtp.qq.com", 465) as server:
             server.login(MY_MAIL, MY_PASS)
@@ -84,6 +100,7 @@ def send_mail(intel, res):
         print("✅ 邮件发送成功！")
     except Exception as e:
         print(f"❌ 邮件发送失败: {e}")
+
 
 if __name__ == "__main__":
     intel_data = get_nvda_intelligence()
