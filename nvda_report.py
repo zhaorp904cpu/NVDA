@@ -1,18 +1,25 @@
 import os
-import time
-import datetime
-import smtplib
-from email.mime.text import MIMEText
-from email.header import Header
-from email.utils import formataddr
+import sys
 from google import genai
 
-# 从 GitHub Secrets 读取配置
+# 获取环境变量
 MY_KEY = os.getenv("GEMINI_API_KEY")
 MY_PASS = os.getenv("EMAIL_PASS")
 MY_MAIL = os.getenv("MY_MAIL")
 
+# --- 强制诊断模块 ---
+print(f"DEBUG: 操作系统环境中的变量检测:")
+print(f"GEMINI_API_KEY 是否存在: {'Yes' if MY_KEY else 'No'}")
+print(f"EMAIL_PASS 是否存在: {'Yes' if MY_PASS else 'No'}")
+print(f"MY_MAIL 是否存在: {'Yes' if MY_MAIL else 'No'}")
+
+if not MY_KEY:
+    print("❌ 致命错误: 无法获取 GEMINI_API_KEY。请检查 GitHub Secrets 配置。")
+    sys.exit(1)
+# ------------------
+
 client = genai.Client(api_key=MY_KEY)
+
 
 def get_nvda_intelligence():
     prompt = "今天是 2026 年 1 月 15 日。请分析过去一周 NVIDIA 的供应链(TSMC/HBM)与云厂商(Microsoft/Meta)CapEx动态，生成财务推导参数。"
