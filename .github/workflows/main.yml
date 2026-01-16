@@ -1,31 +1,32 @@
-name: Weekly NVDA Report Bot
+name: NVDA Weekly Report
 
 on:
   schedule:
-    - cron: '0 0 * * 1'
-  workflow_dispatch: 
+    # 北京时间周六上午 10:00 (UTC 时间周六 02:00)
+    - cron: "0 2 * * 6"
+  workflow_dispatch: {}
 
 jobs:
-  run-report:
+  run-nvda-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          pip install google-genai yfinance
+          python -m pip install --upgrade pip
+          pip install requests
 
       - name: Run NVDA report
-        # ⚠️ 注意：env 必须紧跟在 run 上方，且缩进一致
-      env:
-        DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        MY_MAIL: ${{ secrets.MY_MAIL }}
-      run: |
-        python nvda_report.py
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          MY_MAIL: ${{ secrets.MY_MAIL }}
+        run: |
+          python nvda_report.py
