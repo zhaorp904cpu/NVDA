@@ -1,0 +1,29 @@
+name: Weekly NVDA Report Bot
+
+on:
+  schedule:
+    # 每周一上午 8:00 (北京时间)，对应 UTC 时间 0:00
+    - cron: '0 0 * * 1'
+  workflow_dispatch: # 允许你手动点击按钮测试
+
+jobs:
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install google-genai
+
+      - name: Run Analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          MY_MAIL: ${{ secrets.MY_MAIL }}
+        run: python nvda_report.py
