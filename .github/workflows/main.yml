@@ -15,15 +15,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 升级版本更稳定
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
           pip install google-genai yfinance
 
       - name: Run Analysis
+        # ⚠️ 注意：env 必须紧跟在 run 上方，且缩进一致
         env:
-          # 必须在这里显式映射，Python 才能读到
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           MY_MAIL: ${{ secrets.MY_MAIL }}
