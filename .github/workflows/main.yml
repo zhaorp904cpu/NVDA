@@ -2,8 +2,8 @@ name: Weekly NVDA Report Bot
 
 on:
   schedule:
-    - cron: '0 0 * * 1' # 每周一北京时间上午8点运行
-  workflow_dispatch: # 允许手动点击按钮测试
+    - cron: '0 0 * * 1'
+  workflow_dispatch: 
 
 jobs:
   run-report:
@@ -15,15 +15,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 升级到 3.11 避免 FutureWarning
+          python-version: '3.11' # 升级版本更稳定
 
       - name: Install Dependencies
         run: |
           pip install google-genai yfinance
 
       - name: Run Analysis
-        # 核心：必须在这里把 Secret 映射给环境变量
         env:
+          # 必须在这里显式映射，Python 才能读到
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           MY_MAIL: ${{ secrets.MY_MAIL }}
