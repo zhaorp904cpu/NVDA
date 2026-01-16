@@ -21,10 +21,11 @@ jobs:
         run: |
           pip install google-genai yfinance
 
-      - name: Run Analysis
+      - name: Run NVDA report
         # ⚠️ 注意：env 必须紧跟在 run 上方，且缩进一致
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          MY_MAIL: ${{ secrets.MY_MAIL }}
-        run: python nvda_report.py
+      env:
+        DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        MY_MAIL: ${{ secrets.MY_MAIL }}
+      run: |
+        python nvda_report.py
