@@ -1,5 +1,11 @@
 import os
 import sys
+import datetime
+import smtplib
+# 核心修复：导入邮件相关组件
+from email.mime.text import MIMEText
+from email.header import Header
+from email.utils import formataddr
 from google import genai
 
 # 获取环境变量
@@ -7,18 +13,16 @@ MY_KEY = os.getenv("GEMINI_API_KEY")
 MY_PASS = os.getenv("EMAIL_PASS")
 MY_MAIL = os.getenv("MY_MAIL")
 
-# --- 强制诊断模块 ---
-print(f"DEBUG: 操作系统环境中的变量检测:")
-print(f"GEMINI_API_KEY 是否存在: {'Yes' if MY_KEY else 'No'}")
-print(f"EMAIL_PASS 是否存在: {'Yes' if MY_PASS else 'No'}")
-print(f"MY_MAIL 是否存在: {'Yes' if MY_MAIL else 'No'}")
+# --- 之前的诊断代码可以保留或删除 ---
+print(f"DEBUG: 环境变量检测: GEMINI_API_KEY={ 'Yes' if MY_KEY else 'No' }")
+# ------------------------------
 
 if not MY_KEY:
-    print("❌ 致命错误: 无法获取 GEMINI_API_KEY。请检查 GitHub Secrets 配置。")
     sys.exit(1)
-# ------------------
 
 client = genai.Client(api_key=MY_KEY)
+
+# ... 你的其他函数代码 (get_nvda_intelligence, calculate_forecast 等)
 
 
 def get_nvda_intelligence():
