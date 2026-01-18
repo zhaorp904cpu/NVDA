@@ -3,6 +3,7 @@ import sys
 import datetime
 import smtplib
 import requests
+import json
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
@@ -47,55 +48,111 @@ def get_nvda_intelligence():
 def get_forecast_assumptions():
     last_rev = 42.0
     last_net = 25.1
-
     base_rev_growth = [0.10, 0.08, 0.07, 0.07]
-
-    cowos_impact = [-0.03, -0.01, 0.00, 0.00]
-
-    hbm_impact = [0.00, 0.00, 0.02, 0.02]
-
-    capex_impact = [0.02, 0.02, 0.01, 0.00]
-
     net_leverage = 0.02
-
     quarters = ["FY26 Q4E", "FY27 Q1E", "FY27 Q2E", "FY27 Q3E"]
-
     return {
         "last_rev": last_rev,
         "last_net": last_net,
         "base_rev_growth": base_rev_growth,
-        "cowos_impact": cowos_impact,
-        "hbm_impact": hbm_impact,
-        "capex_impact": capex_impact,
         "net_leverage": net_leverage,
         "quarters": quarters,
     }
 
 
-def build_forecast():
-    a = get_forecast_assumptions()
+def analyze_intel_to_impacts(intel, quarters):
+    cowos_impact = [0.0] * len(quarters)
+    hbm_impact = [0.0] * len(quarters)
+    capex_impact = [0.0] * len(quarters)
+    explanation = "未能从情报中自动提取结构化冲击向量，本次预测仅使用人工设定的基准路径。"
+    if not DS_KEY or not intel or intel.startswith("情报获取失败"):
+        return cowos_impact, hbm_impact, capex_impact, explanation
+    system_prompt = (
+        "你是一名量化研究员，需要将分析师写的 NVDA 情报文字转成结构化的“对未来四个季度营收增速的冲击向量”。"
+        "未来四个季度标签依次为: "
+        + ", ".join(quarters)
+        + "。"
+        "请只输出一段 JSON，不要输出任何解释文字，格式严格如下："
+        "{"
+        '"quarters": ['
+        '{"label": "FY26 Q4E", "cowos": {"direction": "negative", "magnitude": "medium"}, "hbm": {"direction": "none", "magnitude": "low"}, "capex": {"direction": "positive", "magnitude": "low"}},'
+        '{"label": "FY27 Q1E", "cowos": {...}, "hbm": {...}, "capex": {...}},'
+        '{"label": "FY27 Q2E", ...},'
+        '{"label": "FY27 Q3E", ...}'
+        '],'
+        '"notes": "用简短中文概括：例如 CoWoS 在前两季形成中等负面冲击，HBM 在后三季形成正面拉动，云厂商 CapEx 整体略有上修等。"}'
+        "字段含义：direction 只能是 'positive' 'negative' 'none' 三选一；"
+        "magnitude 只能是 'low' 'medium' 'high' 三选一；"
+        "请根据提供的情报文字，判断每个季度在 CoWoS、HBM、CapEx 三个维度的方向和强度。"
+    )
+    try:
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {DS_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "deepseek-reasoner",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": intel},
+            ],
+            "temperature": 0.4,
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        if resp.status_code != 200:
+            return cowos_impact, hbm_impact, capex_impact, explanation
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        json_str = content.strip()
+        start = json_str.find("{")
+        end = json_str.rfind("}")
+        if start == -1 or end == -1:
+            return cowos_impact, hbm_impact, capex_impact, explanation
+        parsed = json.loads(json_str[start : end + 1])
+        quarter_items = parsed.get("quarters", [])
+        notes = parsed.get("notes") or ""
+        mag_map = {"low": 0.01, "medium": 0.02, "high": 0.03}
+        for idx, q in enumerate(quarter_items):
+            if idx >= len(quarters):
+                break
+            c = q.get("cowos", {})
+            h = q.get("hbm", {})
+            cp = q.get("capex", {})
+            for obj, arr in [(c, cowos_impact), (h, hbm_impact), (cp, capex_impact)]:
+                direction = str(obj.get("direction", "none")).lower()
+                magnitude = str(obj.get("magnitude", "low")).lower()
+                if direction == "none":
+                    continue
+                sign = 1.0 if direction == "positive" else -1.0
+                delta = mag_map.get(magnitude, 0.01) * sign
+                arr[idx] += delta
+        explanation = notes or "本次已根据情报自动生成 CoWoS/HBM/CapEx 冲击向量，请人工复核季度方向和幅度。"
+        return cowos_impact, hbm_impact, capex_impact, explanation
+    except Exception:
+        return cowos_impact, hbm_impact, capex_impact, explanation
 
+
+def build_forecast(intel):
+    a = get_forecast_assumptions()
+    cowos_impact, hbm_impact, capex_impact, explanation = analyze_intel_to_impacts(
+        intel, a["quarters"]
+    )
     rev_growth = []
     net_growth = []
     forecast = []
-
     prev_rev = a["last_rev"]
     prev_net = a["last_net"]
-
+    auto_rev_impact = []
     for i in range(4):
-        g_rev = (
-            a["base_rev_growth"][i]
-            + a["cowos_impact"][i]
-            + a["hbm_impact"][i]
-            + a["capex_impact"][i]
-        )
-        rev_growth.append(g_rev)
+        auto_delta = cowos_impact[i] + hbm_impact[i] + capex_impact[i]
+        g_rev = a["base_rev_growth"][i] + auto_delta
         g_net = g_rev + a["net_leverage"]
+        rev_growth.append(g_rev)
         net_growth.append(g_net)
-
+        auto_rev_impact.append(auto_delta)
         r = prev_rev * (1 + g_rev)
         n = prev_net * (1 + g_net)
-
         forecast.append(
             {
                 "quarter": a["quarters"][i],
@@ -105,11 +162,16 @@ def build_forecast():
                 "net_growth": g_net,
             }
         )
-
         prev_rev = r
         prev_net = n
-
-    return forecast, a
+    impacts = {
+        "cowos": cowos_impact,
+        "hbm": hbm_impact,
+        "capex": capex_impact,
+        "auto_rev_impact": auto_rev_impact,
+        "explanation": explanation,
+    }
+    return forecast, a, impacts
 
 
 def format_growth_list(values):
@@ -120,13 +182,11 @@ def format_pp_list(values):
     return ", ".join(f"{v * 100:.0f}pp" for v in values)
 
 
-def send_mail(intel, forecast, assumptions):
+def send_mail(intel, forecast, assumptions, impacts):
     if not MY_PASS or not MY_MAIL:
         print("未检测到 EMAIL_PASS 或 MY_MAIL，跳过发送邮件。")
         return
-
     intel_html = intel.replace("\n", "<br>")
-
     table_rows = ""
     for item in forecast:
         table_rows += f"""
@@ -137,15 +197,15 @@ def send_mail(intel, forecast, assumptions):
             <td style="padding: 8px; border: 1px solid #ddd; text-align: center; color: #e74c3c;">{item['rev_growth'] * 100:.0f}%</td>
         </tr>
         """
-
     base_rev_str = format_growth_list(assumptions["base_rev_growth"])
-    cowos_str = format_pp_list(assumptions["cowos_impact"])
-    hbm_str = format_pp_list(assumptions["hbm_impact"])
-    capex_str = format_pp_list(assumptions["capex_impact"])
+    auto_rev_str = format_pp_list(impacts["auto_rev_impact"])
+    cowos_str = format_pp_list(impacts["cowos"])
+    hbm_str = format_pp_list(impacts["hbm"])
+    capex_str = format_pp_list(impacts["capex"])
     last_rev = assumptions["last_rev"]
     last_net = assumptions["last_net"]
     net_leverage = assumptions["net_leverage"] * 100
-
+    explanation = impacts["explanation"]
     html = f"""
     <html>
     <body style="font-family: '微软雅黑', sans-serif; max-width: 900px; margin: 0 auto; color: #333;">
@@ -175,10 +235,11 @@ def send_mail(intel, forecast, assumptions):
         <h3>🧩 关键建模假设拆解</h3>
         <div style="background-color: #f9f9f9; padding: 15px; border-left: 5px solid #76b900; line-height: 1.7; font-size: 14px;">
             <p><b>1. 起点基准：</b>以最近一个已公布季度为起点，实际营收约 {last_rev:.1f} B，实际净利润约 {last_net:.1f} B。</p>
-            <p><b>2. 基准路径（不考虑新事件时）：</b>未来四个季度营收环比基准假设为 [{base_rev_str}]。</p>
-            <p><b>3. 供应链冲击：</b>CoWoS 产能对营收增速的季度影响向量为 [{cowos_str}]；HBM 供应变化对营收增速的影响向量为 [{hbm_str}]。</p>
-            <p><b>4. 需求与 CapEx 冲击：</b>云厂商 AI CapEx 调整对营收增速的影响向量为 [{capex_str}]。</p>
+            <p><b>2. 基准路径：</b>未来四个季度营收环比基准假设为 [{base_rev_str}]。</p>
+            <p><b>3. 自动冲击向量（营收）：</b>基于供应链与 CapEx 情报，模型对四个季度营收增速的综合调整为 [{auto_rev_str}]。</p>
+            <p><b>4. 拆解：</b>CoWoS 产能冲击向量 [{cowos_str}]；HBM 供应冲击向量 [{hbm_str}]；云厂 AI CapEx 冲击向量 [{capex_str}]。</p>
             <p><b>5. 利润弹性：</b>净利润环比增速相对于营收增速附加约 {net_leverage:.0f} 个百分点，以反映毛利率与运营杠杆的放大效应。</p>
+            <p><b>6. 模型自动解释：</b>{explanation}</p>
         </div>
 
         <h3>🔍 DeepSeek 模型情报摘要</h3>
@@ -189,12 +250,11 @@ def send_mail(intel, forecast, assumptions):
         <hr style="margin-top: 30px; border: 0; border-top: 1px solid #eee;">
         <p style="text-align: center; font-size: 12px; color: #aaa;">
             本报告为内部模型推演结果，仅供参考，不构成任何投资建议。<br>
-            建议在每次重大供应链或 CapEx 事件后，及时调整上述冲击向量并重新生成本报表。
+            建议在每次重大供应链或 CapEx 事件后，及时调整基准参数并复核模型自动生成的冲击向量。
         </p>
     </body>
     </html>
     """
-
     msg = MIMEText(html, "html", "utf-8")
     msg["From"] = formataddr((str(Header("NVDA业绩哨兵", "utf-8")), MY_MAIL))
     msg["To"] = MY_MAIL
@@ -202,7 +262,6 @@ def send_mail(intel, forecast, assumptions):
         f"【AI前瞻】NVDA 未来四季度盈利预测周报 - {datetime.date.today()}",
         "utf-8",
     )
-
     try:
         with smtplib.SMTP_SSL("smtp.qq.com", 465) as server:
             server.login(MY_MAIL, MY_PASS)
@@ -214,8 +273,8 @@ def send_mail(intel, forecast, assumptions):
 
 def main():
     intel = get_nvda_intelligence()
-    forecast, assumptions = build_forecast()
-    send_mail(intel, forecast, assumptions)
+    forecast, assumptions, impacts = build_forecast(intel)
+    send_mail(intel, forecast, assumptions, impacts)
 
 
 if __name__ == "__main__":
